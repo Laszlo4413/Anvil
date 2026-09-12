@@ -99,3 +99,32 @@ kind = "task"                            # task | adr | general，決定 Status 
 - 導航文件提到的最大版本號對目錄實際最大版本
 - 凍結區內的檔案首行有標記
 - 某類文件的 `Updated` 落後太久（範例檔示範的就是這個）
+
+### 寫多路線檢查時的兩個坑（第一次真實掛接時抓到的，任何巢狀深度不一致的專案都會踩）
+
+**坑一：路線的巢狀深度不要寫死。** 同一個專案裡，路線 A 可能是 `routes/<引擎>/<遊戲>/V7`，路線 B 是 `routes/<平台>/V5`，少一層。
+用固定深度的 glob（`routes/*/*/V*`）會直接漏掉 B，而且不會報錯。正解是「直接含有 V* 子目錄的目錄 = 一條路線」，
+用 `ctx.milestone_routes(base)` 發現，它會回 `{路線相對路徑: 最大編號}`，深度隨便。
+
+**坑二：版本號比對要按路線分組，不能整檔抓最大值。** 檢查「導航文件提到的最大版本 ≥ 目錄實際最大版本」時，
+若對整份文件做 `re.findall(r"V(\d+)")` 取最大，路線 A 的 V7 會蓋過路線 B 的 V5，B 落後五版也永遠不會紅。
+正解是每條路線各自比：只在**提到該路線名字的那幾行**裡找版本號。
+
+```python
+import re
+
+def run(ctx):
+    routes = ctx.milestone_routes("routes")                 # {"routes/A/Game": 7, "routes/B": 5}
+    nav = (ctx.root / "routes" / "README.md").read_text(encoding="utf-8").splitlines()
+    out = []
+    for route, actual in routes.items():
+        key = route.rsplit("/", 1)[-1]                       # 用路線的最後一段名字在文件裡找它的行
+        lines = [ln for ln in nav if key in ln]
+        mentioned = [int(n) for ln in lines for n in re.findall(r"\bV(\d+)\b", ln)]
+        top = max(mentioned) if mentioned else -1
+        if top < actual:
+            out.append(("BLOCK", f"routes/README.md 對 {route} 只提到 V{top}，目錄實際到 V{actual}"))
+    return out or [("OK", f"{len(routes)} 條路線的導航都涵蓋到最新里程碑")]
+```
+
+寫完一定做負向測試：把某條路線的版本在文件裡改舊、或新增一個更深一層的路線目錄，確認檢查真的會紅。

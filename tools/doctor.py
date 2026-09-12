@@ -102,6 +102,29 @@ class Ctx:
     def docs(self) -> Path:
         return self.root / self.cfg["docs_dir"]
 
+    def milestone_routes(self, base: str, pattern: str = r"^V(\d+)$") -> dict[str, int]:
+        """發現「路線」與各自最大的里程碑編號，不假設巢狀深度。
+
+        路線 = 直接含有符合 pattern 的子目錄（如 V0、V1…）的那個目錄。回傳 {路線相對路徑: 最大編號}。
+        例：routes/A/Game/V7 與 routes/B/V5 深度不同，一樣會回 {"routes/A/Game": 7, "routes/B": 5}。
+        延伸檢查要比對「導航文件提到的最大版本」時，**按路線分組比對**，不要整檔抓一個最大值——
+        否則路線 A 的 V7 會讓路線 B 的檢查永遠不會紅（第一次真實掛接時抓到的坑）。
+        """
+        root = self.root / base
+        if not root.is_dir():
+            return {}
+        rx = re.compile(pattern)
+        out: dict[str, int] = {}
+        for d in root.rglob("*"):
+            if not d.is_dir():
+                continue
+            m = rx.match(d.name)
+            if not m:
+                continue
+            route = rel(self, d.parent)
+            out[route] = max(out.get(route, -1), int(m.group(1)))
+        return out
+
     def git(self, *args: str, strip: bool = True) -> str | None:
         """唯讀 git 呼叫；沒有 git 或不是 repo 回 None。porcelain 類輸出要傳 strip=False（開頭空白有意義）。"""
         try:

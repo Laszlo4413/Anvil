@@ -219,6 +219,20 @@ def test_install_git_hooks(tmp_path):
     assert run("--uninstall", "--apply").returncode == 0 and not hook.exists()
 
 
+def test_milestone_routes_ignores_nesting_depth(tmp_path):
+    """深度不同的路線都要被發現，且各自取自己的最大編號，不互相污染。"""
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "0.1.0"\n[tool.anvil]\npackage = "pkg"\n', encoding="utf-8")
+    for d in ("routes/A/Game/V1", "routes/A/Game/V7", "routes/B/V0", "routes/B/V5", "routes/C/_workshop", "routes/A/Game/V7/scripts/V9"):
+        (tmp_path / d).mkdir(parents=True)
+    ctx = doctor.Ctx(root=tmp_path, cfg=doctor.load_config(tmp_path))
+    routes = ctx.milestone_routes("routes")
+    assert routes["routes/A/Game"] == 7
+    assert routes["routes/B"] == 5
+    assert "routes/C" not in routes  # 沒有 V* 子目錄的不是路線
+    assert routes["routes/A/Game/V7/scripts"] == 9  # 更深的巢狀也會被當成一條路線，由呼叫端用 pattern 或 base 收窄
+    assert ctx.milestone_routes("nope") == {}
+
+
 def _run_hook(command: str, env_extra: dict | None = None, root: Path = ROOT) -> subprocess.CompletedProcess:
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(root), **(env_extra or {})}
     env.pop("ANVIL_SKIP_DOCTOR", None) if not env_extra else None
