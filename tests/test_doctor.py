@@ -112,6 +112,32 @@ def test_governed_globs_extend_metadata_check(tmp_path):
     assert any(lvl == doctor.BLOCK and "routes/A/V1/PLAN.md" in m for lvl, _, m in ctx.results)
 
 
+def test_bootstrap_check(tmp_path):
+    """樣板模式不吵；改名後 TEMPLATE_README 殘留與 README 佔位符要警告；README 連到已刪的檔要阻斷。"""
+    def make(package: str, keep_template: bool, readme: str):
+        for p in tmp_path.iterdir():
+            p.unlink() if p.is_file() else None
+        (tmp_path / "pyproject.toml").write_text(
+            f'[project]\nversion = "0.1.0"\n[tool.anvil]\npackage = "{package}"\n', encoding="utf-8"
+        )
+        if keep_template:
+            (tmp_path / "TEMPLATE_README.md").write_text("# t\n", encoding="utf-8")
+        (tmp_path / "README.md").write_text(readme, encoding="utf-8")
+        ctx = doctor.Ctx(root=tmp_path, cfg=doctor.load_config(tmp_path))
+        doctor.check_bootstrap(ctx)
+        return [(lvl, m) for lvl, _, m in ctx.results]
+
+    r = make("anvil", True, "# <專案名>\n")
+    assert r[0][0] == doctor.OK
+    r = make("mypkg", True, "# <專案名> — <一句話定位>\n<br>\n")
+    assert any(lvl == doctor.WARN and "TEMPLATE_README.md" in m for lvl, m in r)
+    assert any(lvl == doctor.WARN and "2 個佔位符" in m for lvl, m in r)
+    r = make("mypkg", False, "> 以 [Anvil](TEMPLATE_README.md) 起始\n# Done\n")
+    assert any(lvl == doctor.BLOCK for lvl, _ in r)
+    r = make("mypkg", False, "# Done\n")
+    assert r == [(doctor.OK, "樣板過渡已完成")]
+
+
 def _run_hook(command: str, env_extra: dict | None = None, root: Path = ROOT) -> subprocess.CompletedProcess:
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(root), **(env_extra or {})}
     env.pop("ANVIL_SKIP_DOCTOR", None) if not env_extra else None

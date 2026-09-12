@@ -21,6 +21,8 @@
 10. tools     tools/ 內腳本 docstring 含四段（為什麼需要／檢查什麼或做什麼／安全／退出碼）
 11. gitignore .gitignore 涵蓋敏感檔樣式；git 追蹤清單內沒有敏感檔
 12. ext       載入 tools/doctor_ext/*.py 的 run(ctx)，讓延伸層加自己的檢查
+13. bootstrap 專案已從樣板改名後：TEMPLATE_README.md 應已刪除、README.md 不應殘留中文佔位符；
+              樣板模式（package 仍是 anvil）不檢查
 
 ## 安全設計
 只讀不寫。不改任何檔案、不打網路；外部程式只呼叫 git 的唯讀子命令。沒有 git 或沒有 tag 時降級為警告，
@@ -545,6 +547,35 @@ def check_ext(ctx: Ctx) -> None:
             ctx.add(WARN, name, f"{rel(ctx, p)} 執行失敗：{e}")
 
 
+PLACEHOLDER_RE = re.compile(r"<[^<>\n]*[一-鿿][^<>\n]*>")  # 尖括號內含中文 = 佔位符；HTML 標籤是純 ASCII 不會命中
+TEMPLATE_PACKAGE = "anvil"
+TEMPLATE_README = "TEMPLATE_README.md"
+
+
+def check_bootstrap(ctx: Ctx) -> None:
+    """專案是否已完成從樣板到正式專案的過渡。"""
+    name = "bootstrap"
+    if ctx.cfg["package"] == TEMPLATE_PACKAGE:
+        ctx.add(OK, name, "樣板模式（package 仍是 anvil），不檢查過渡狀態")
+        return
+    problems = 0
+    if (ctx.root / TEMPLATE_README).exists():
+        problems += 1
+        ctx.add(WARN, name, f"專案已改名，{TEMPLATE_README} 可以刪除了（樣板說明對正式專案沒有用）")
+    readme = ctx.root / "README.md"
+    if readme.exists():
+        hits = PLACEHOLDER_RE.findall(readme.read_text(encoding="utf-8"))
+        if hits:
+            problems += 1
+            sample = "、".join(h if len(h) <= 24 else h[:24] + "…>" for h in hits[:3]) + ("…" if len(hits) > 3 else "")
+            ctx.add(WARN, name, f"README.md 還有 {len(hits)} 個佔位符：{sample}")
+        if TEMPLATE_README in readme.read_text(encoding="utf-8") and not (ctx.root / TEMPLATE_README).exists():
+            problems += 1
+            ctx.add(BLOCK, name, f"README.md 仍連到已刪除的 {TEMPLATE_README}，刪掉開頭那行提示")
+    if not problems:
+        ctx.add(OK, name, "樣板過渡已完成")
+
+
 CHECKS = [
     ("version", check_version, False),
     ("status", check_status, False),
@@ -557,6 +588,7 @@ CHECKS = [
     ("adr", check_adr, False),
     ("tools", check_tools, False),
     ("gitignore", check_gitignore, False),
+    ("bootstrap", check_bootstrap, False),
     ("ext", check_ext, True),
 ]
 

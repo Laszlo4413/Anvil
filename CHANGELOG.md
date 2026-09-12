@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+### 新增
+- 兩份 README 分工：`README.md` 是專案 README 骨架（新專案填實），`TEMPLATE_README.md` 是樣板說明（新專案刪除）。doctor 新增第 13 項 `bootstrap` 檢查：專案改名後樣板說明檔未刪、README 殘留佔位符會警告，README 連到已刪的檔會阻斷。
+
 ### 變更
 - 去除 0.1.1 沾到的單一專案特化：`docs/extending.md`、AGENTS 掛點表、`doctor_ext/_example.py` 改為領域中立的寫法與範例。
 - 新增延伸點 `[[tool.anvil.governed]]`：用 glob 與 kind 把專案自己的文件納入中繼資料檢查，不必寫程式。
