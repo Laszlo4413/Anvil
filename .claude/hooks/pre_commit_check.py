@@ -47,8 +47,9 @@ def main() -> int:
     if not os.path.exists(doctor):
         print(f"[anvil] 找不到 {doctor}，放行。", file=sys.stderr)
         return 0
+    # --changes all：hook 觸發時 `git add -A && git commit` 還沒 stage，所以看整個工作樹的變更
     r = subprocess.run(
-        [sys.executable, doctor, "--quick", "--root", root],
+        [sys.executable, doctor, "--quick", "--changes", "all", "--root", root],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     if r.returncode != 0:

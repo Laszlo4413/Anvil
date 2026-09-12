@@ -5,7 +5,11 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-12
+
 ### 新增
+- 中大型專案需要的四項通用機制，全部是設定鍵或工具，不加特例：`[[tool.anvil.coupled]]` 耦合檢查（改 X 必改 Y，commit 前擋）、`[[tool.anvil.ledgers]]` 多本帳（同格式同檢查、各自編號前綴）、任務單遞迴掃描（可分夾）、`tools/install_git_hooks.py`（git 原生 pre-commit，Claude Code 以外的工具也擋）。見 [任務單](docs/tasks/2026-09-12-v0.2.0-scale-mechanisms.md)。
+- `docs/extending.md` 加「規模變大時的加法」；`TEMPLATE_README.md` 加「小專案的最小用法」。
 - 兩份 README 分工：`README.md` 是專案 README 骨架（新專案填實），`TEMPLATE_README.md` 是樣板說明（新專案刪除）。doctor 新增第 13 項 `bootstrap` 檢查：專案改名後樣板說明檔未刪、README 殘留佔位符會警告，README 連到已刪的檔會阻斷。
 
 ### 變更

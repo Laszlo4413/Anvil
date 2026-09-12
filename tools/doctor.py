@@ -23,6 +23,10 @@
 12. ext       載入 tools/doctor_ext/*.py 的 run(ctx)，讓延伸層加自己的檢查
 13. bootstrap 專案已從樣板改名後：TEMPLATE_README.md 應已刪除、README.md 不應殘留中文佔位符；
               樣板模式（package 仍是 anvil）不檢查
+14. coupled   [[tool.anvil.coupled]] 宣告的耦合：本次變更命中 when glob 時，require glob 也必須在變更內
+              （例：改了 CLI 就必須改 CHANGELOG）。--changes staged 只看已 stage 的；all 看整個工作樹
+    另：limits 檢查其實跑遍所有帳本（limits_file + [[tool.anvil.ledgers]]），每本有自己的編號前綴；
+    tasks 遞迴掃描子目錄，任務單量大時可依版本或年份分夾
 
 ## 安全設計
 只讀不寫。不改任何檔案、不打網路；外部程式只呼叫 git 的唯讀子命令。沒有 git 或沒有 tag 時降級為警告，
@@ -30,9 +34,11 @@
 
 ## 退出碼
 0 = 沒有阻斷項（可能有警告）；1 = 有阻斷項。
-用法：python tools/doctor.py [--quick] [--root <專案根>] [--list]
-  --quick  跳過 links 與 ext（給 commit hook 用）
-  --list   只列出檢查名稱
+用法：python tools/doctor.py [--quick] [--changes staged|all] [--root <專案根>] [--list]
+  --quick    跳過 links 與 ext（給 commit hook 用）
+  --changes  coupled 檢查看哪些變更：staged（git 原生 pre-commit 用）或 all（預設；Claude Code hook 用，
+             因為 `git add -A && git commit` 在 hook 觸發時還沒 stage）
+  --list     只列出檢查名稱
 """
 
 from __future__ import annotations
@@ -71,6 +77,8 @@ DEFAULT_CFG = {
     "archive_dir": "docs/archive",
     "max_active_tasks": 1,
     "governed": [],                        # 額外納管的文件：[{"glob": "...", "kind": "task|adr|general"}]
+    "ledgers": [],                         # 額外的帳本：[{"file": "docs/xxx.md", "prefix": "D", "name": "..."}]
+    "coupled": [],                         # 耦合宣告：[{"when": "glob", "require": "glob 或 [glob…]", "reason": "..."}]
     "status_stale_days": 14,
     "agents_max_lines": 150,
     "sensitive_globs": [".env", ".env.*", "credentials.json", "token.json", "cookie.txt", "*.db", "*.sqlite"],
@@ -84,6 +92,7 @@ class Ctx:
     root: Path
     cfg: dict
     quick: bool = False
+    changes_mode: str = "all"  # coupled 檢查看 staged 還是整個工作樹
     results: list[tuple[str, str, str]] = field(default_factory=list)  # (level, check, message)
 
     def add(self, level: str, check: str, message: str) -> None:
@@ -93,8 +102,8 @@ class Ctx:
     def docs(self) -> Path:
         return self.root / self.cfg["docs_dir"]
 
-    def git(self, *args: str) -> str | None:
-        """唯讀 git 呼叫；沒有 git 或不是 repo 回 None。"""
+    def git(self, *args: str, strip: bool = True) -> str | None:
+        """唯讀 git 呼叫；沒有 git 或不是 repo 回 None。porcelain 類輸出要傳 strip=False（開頭空白有意義）。"""
         try:
             out = subprocess.run(
                 ["git", *args], cwd=self.root, capture_output=True, text=True, encoding="utf-8", errors="replace"
@@ -103,7 +112,7 @@ class Ctx:
             return None
         if out.returncode != 0:
             return None
-        return out.stdout.strip()
+        return out.stdout.strip() if strip else out.stdout
 
 
 # ── 共用解析 ──────────────────────────────────────────────────────────
@@ -192,6 +201,40 @@ def latest_tag_version(ctx: Ctx) -> tuple[str | None, tuple[int, int, int] | Non
 
 def current_version(ctx: Ctx) -> tuple[int, int, int] | None:
     return parse_version(ctx.cfg.get("pyproject_version"))
+
+
+def changed_files(ctx: Ctx) -> list[str] | None:
+    """本次變更的檔案（posix 相對路徑）。staged 模式只看 index；all 模式看 staged + 工作樹修改 + 未追蹤。"""
+    if ctx.changes_mode == "staged":
+        out = ctx.git("diff", "--cached", "--name-only", "-z")
+        if out is None:
+            return None
+        return [p for p in out.split("\0") if p]
+    out = ctx.git("status", "--porcelain=v1", "-z", "-uall", strip=False)
+    if out is None:
+        return None
+    files: list[str] = []
+    parts = out.split("\0")  # 每筆 "XY path"；X/Y 可能是空白，所以不能 strip
+    i = 0
+    while i < len(parts):
+        entry = parts[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        xy, path = entry[:2], entry[3:]
+        files.append(path)
+        if "R" in xy or "C" in xy:  # rename/copy 後面多一欄舊路徑
+            i += 1
+    return files
+
+
+def ledgers(ctx: Ctx) -> list[dict]:
+    """所有帳本：預設的 limits_file（前綴 L）+ [[tool.anvil.ledgers]]。"""
+    out = [{"file": ctx.cfg["limits_file"], "prefix": "L", "name": "limits"}]
+    for entry in ctx.cfg.get("ledgers") or []:
+        if entry.get("file") and entry.get("prefix"):
+            out.append({"file": entry["file"], "prefix": entry["prefix"], "name": entry.get("name", entry["file"])})
+    return out
 
 
 # ── 各項檢查 ──────────────────────────────────────────────────────────
@@ -299,14 +342,16 @@ def governed_files(ctx: Ctx) -> list[tuple[Path, str]]:
     sf = ctx.root / ctx.cfg["status_file"]
     if sf.exists():
         out.append((sf, "general"))
-    lim = ctx.root / ctx.cfg["limits_file"]
-    if lim.exists():
-        out.append((lim, "general"))
+    for led in ledgers(ctx):
+        lim = ctx.root / led["file"]
+        if lim.exists():
+            out.append((lim, "general"))
     for key, kind in (("decisions_dir", "adr"), ("tasks_dir", "task"), ("archive_dir", "general")):
         d = ctx.root / ctx.cfg[key]
         if d.is_dir():
-            for p in sorted(d.glob("*.md")):
-                if p.name.lower() == "readme.md":
+            files = d.rglob("*.md") if key == "tasks_dir" else d.glob("*.md")  # 任務單可分夾
+            for p in sorted(files):
+                if p.name.lower() == "readme.md" or "_templates" in p.parts:
                     continue
                 out.append((p, kind))
     # 延伸點：[[tool.anvil.governed]] glob="..." kind="task|adr|general"，讓專案把自己的文件納入同一套檢查
@@ -380,14 +425,14 @@ def check_tasks(ctx: Ctx) -> None:
         return
     active: list[str] = []
     bad_name = 0
-    for p in sorted(d.glob("*.md")):
-        if p.name.lower() == "readme.md":
+    for p in sorted(d.rglob("*.md")):
+        if p.name.lower() == "readme.md" or "_templates" in p.parts:
             continue
         if not re.match(r"^\d{4}-\d{2}-\d{2}-", p.name):
             bad_name += 1
             ctx.add(WARN, name, f"{rel(ctx, p)} 檔名不是 YYYY-MM-DD- 開頭")
         if read_meta(p).get("Status", "").split()[:1] == ["active"]:
-            active.append(p.name)
+            active.append(rel(ctx, p))
     if len(active) > max_active:
         ctx.add(WARN, name, f"同時 active 的任務單有 {len(active)} 份：{', '.join(active)}（上限 {max_active}）")
     if len(active) <= max_active and not bad_name:
@@ -413,31 +458,38 @@ def check_archive(ctx: Ctx) -> None:
 
 
 def check_limits(ctx: Ctx) -> None:
+    """跑遍所有帳本（limits_file + ledgers）：編號不重複、標已解除者附證據。欄位：# | 首見 | 內容 | 處置 | 狀態 | 解除條件 | 證據。"""
     name = "limits"
-    f = ctx.root / ctx.cfg["limits_file"]
-    if not f.exists():
-        ctx.add(WARN, name, f"沒有 {ctx.cfg['limits_file']}")
-        return
-    seen: set[str] = set()
     problems = 0
-    rows = 0
-    for line in f.read_text(encoding="utf-8").splitlines():
-        if not line.startswith("|"):
-            continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if not cells or not re.fullmatch(r"L\d+", cells[0]):
-            continue
-        rows += 1
-        lid = cells[0]
-        if lid in seen:
+    summary: list[str] = []
+    for led in ledgers(ctx):
+        f = ctx.root / led["file"]
+        label = led["file"]
+        if not f.exists():
             problems += 1
-            ctx.add(BLOCK, name, f"limits.md 編號重複：{lid}")
-        seen.add(lid)
-        if len(cells) >= 7 and "已解除" in cells[4] and cells[6] in ("", "—", "-"):
-            problems += 1
-            ctx.add(BLOCK, name, f"limits.md {lid} 標已解除但沒有解除證據")
+            ctx.add(WARN, name, f"沒有 {label}")
+            continue
+        seen: set[str] = set()
+        rows = 0
+        id_re = re.compile(rf"{re.escape(led['prefix'])}\d+")
+        for line in f.read_text(encoding="utf-8").splitlines():
+            if not line.startswith("|"):
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if not cells or not id_re.fullmatch(cells[0]):
+                continue
+            rows += 1
+            lid = cells[0]
+            if lid in seen:
+                problems += 1
+                ctx.add(BLOCK, name, f"{label} 編號重複：{lid}")
+            seen.add(lid)
+            if len(cells) >= 7 and "已解除" in cells[4] and cells[6] in ("", "—", "-"):
+                problems += 1
+                ctx.add(BLOCK, name, f"{label} {lid} 標已解除但沒有解除證據")
+        summary.append(f"{label} {rows} 條")
     if not problems:
-        ctx.add(OK, name, f"limits.md {rows} 條，編號不重複，已解除者皆附證據")
+        ctx.add(OK, name, "、".join(summary) + "；編號不重複，已解除者皆附證據")
 
 
 def check_adr(ctx: Ctx) -> None:
@@ -576,6 +628,44 @@ def check_bootstrap(ctx: Ctx) -> None:
         ctx.add(OK, name, "樣板過渡已完成")
 
 
+def _match(path: str, glob: str) -> bool:
+    """glob 比對；`**/` 可省略（`src/**/*.py` 與 `src/*.py` 都能命中子目錄，fnmatch 的 * 會跨斜線）。"""
+    return fnmatch.fnmatchcase(path, glob) or fnmatch.fnmatchcase(path, glob.replace("**/", ""))
+
+
+def check_coupled(ctx: Ctx) -> None:
+    """[[tool.anvil.coupled]]：變更命中 when 時，require 也必須在變更內。"""
+    name = "coupled"
+    pairs = ctx.cfg.get("coupled") or []
+    if not pairs:
+        ctx.add(OK, name, "沒有耦合宣告")
+        return
+    changed = changed_files(ctx)
+    if changed is None:
+        ctx.add(OK, name, "沒有 git，略過")
+        return
+    if not changed:
+        ctx.add(OK, name, "沒有變更")
+        return
+    problems = 0
+    for pair in pairs:
+        when = pair.get("when")
+        req = pair.get("require")
+        if not when or not req:
+            continue
+        requires = [req] if isinstance(req, str) else list(req)
+        hits = [f for f in changed if _match(f, when)]
+        if not hits:
+            continue
+        missing = [r for r in requires if not any(_match(f, r) for f in changed)]
+        if missing:
+            problems += 1
+            reason = f"（{pair['reason']}）" if pair.get("reason") else ""
+            ctx.add(BLOCK, name, f"改了 {hits[0]}{'…' if len(hits) > 1 else ''} 但沒動 {', '.join(missing)}{reason}")
+    if not problems:
+        ctx.add(OK, name, f"{len(pairs)} 條耦合宣告都滿足（看 {ctx.changes_mode} 變更 {len(changed)} 個檔）")
+
+
 CHECKS = [
     ("version", check_version, False),
     ("status", check_status, False),
@@ -589,6 +679,7 @@ CHECKS = [
     ("tools", check_tools, False),
     ("gitignore", check_gitignore, False),
     ("bootstrap", check_bootstrap, False),
+    ("coupled", check_coupled, False),
     ("ext", check_ext, True),
 ]
 
@@ -596,8 +687,8 @@ CHECKS = [
 # ── 主程式 ────────────────────────────────────────────────────────────
 
 
-def run(root: Path, quick: bool = False) -> Ctx:
-    ctx = Ctx(root=root, cfg=load_config(root), quick=quick)
+def run(root: Path, quick: bool = False, changes_mode: str = "all") -> Ctx:
+    ctx = Ctx(root=root, cfg=load_config(root), quick=quick, changes_mode=changes_mode)
     for _, fn, skip_on_quick in CHECKS:
         if quick and skip_on_quick:
             continue
@@ -626,6 +717,7 @@ def main(argv: list[str] | None = None) -> int:
             pass
     ap = argparse.ArgumentParser(description="Anvil doctor：文件新鮮度與協作紀律檢查（只讀）")
     ap.add_argument("--quick", action="store_true", help="跳過 links 與 ext（commit hook 用）")
+    ap.add_argument("--changes", choices=["staged", "all"], default="all", help="coupled 檢查看哪些變更")
     ap.add_argument("--root", default=None, help="專案根目錄（預設：本檔的上上層）")
     ap.add_argument("--list", action="store_true", help="只列檢查名稱")
     args = ap.parse_args(argv)
@@ -634,7 +726,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{name}{'  (--quick 跳過)' if skip else ''}")
         return 0
     root = Path(args.root).resolve() if args.root else Path(__file__).resolve().parents[1]
-    return report(run(root, quick=args.quick))
+    return report(run(root, quick=args.quick, changes_mode=args.changes))
 
 
 if __name__ == "__main__":

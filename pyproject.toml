@@ -1,6 +1,6 @@
 [project]
 name = "anvil-template"
-version = "0.1.1"
+version = "0.2.0"
 description = "給單人 + AI 代理人協作的專案起手樣板：規則檔、狀態檔、三種紀錄、doctor 檢查與 commit hook"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,5 +38,16 @@ status_stale_days = 14         # STATUS.md 的 Updated 落後最近 commit 超�
 # [[tool.anvil.governed]]
 # glob = "routes/**/PLAN.md"
 # kind = "task"                # task | adr | general
+
+# 額外的帳本（延伸點，可多組）：與 limits.md 同格式（# | 首見 | 內容 | 處置 | 狀態 | 解除條件 | 證據），各自的編號前綴
+# [[tool.anvil.ledgers]]
+# file = "docs/tech_debt.md"
+# prefix = "D"
+
+# 耦合宣告（延伸點，可多組）：變更命中 when 時 require 也必須在變更內；doctor 在 commit 前檢查
+[[tool.anvil.coupled]]
+when = "tools/doctor.py"
+require = ["tests/test_doctor.py", "CHANGELOG.md"]
+reason = "doctor 是樣板的產品本體：改它要有測試與變更紀錄"
 agents_max_lines = 150
 sensitive_globs = [".env", ".env.*", "credentials.json", "token.json", "cookie.txt", "*.db", "*.sqlite"]

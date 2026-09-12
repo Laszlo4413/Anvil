@@ -66,3 +66,6 @@ pytest
 | 任務單、ADR 要加欄位 | 可加，不可刪基礎欄、不可改既有標題 |
 | 工作單位是里程碑而非單一任務（多路線／多版本專案） | 規劃檔留在它的版本夾，用 `[[tool.anvil.governed]]` 納管；`docs/tasks/` 只放跨路線工作。見 `docs/extending.md` |
 | 既有的限制總帳、任務夾不叫 Anvil 的名字 | 不改名，改 `[tool.anvil]` 的 `limits_file`／`tasks_dir`／`decisions_dir`／`archive_dir` |
+| 「改了 X 就必須改 Y」這類同步鐵律 | `[[tool.anvil.coupled]]` 宣告 when／require，doctor 在 commit 前擋；不要寫成散文規則 |
+| 第二本帳（技術債、契約缺口…） | `[[tool.anvil.ledgers]]` 加檔案與編號前綴，與限制總帳同格式同檢查 |
+| Claude Code 以外的工具也要擋 commit | `python tools/install_git_hooks.py --apply` 裝 git 原生 pre-commit |

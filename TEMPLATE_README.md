@@ -18,8 +18,8 @@ Anvil 對領域中立，不規定語言與框架；`docs/python_profile.md` 是 
 | `STATUS.md` | 唯一的「活」檔：版本、進行中、下一步 | 只有一份檔會頻繁改，其他都是穩定參考 |
 | `docs/tasks/` `docs/decisions/` `docs/limits.md` | 任務單、決策紀錄、限制總帳，各有固定標題 | 紀錄骨架固定，代理人才不會即興發明結構 |
 | 文件中繼資料 `Status／Updated／Expiry` | 文件誕生時宣告自己的死法 | 過期的索引文件沒人發現，是真實發生過的事故 |
-| `tools/doctor.py` | 十三項檢查，✗⚠✓ 三級，exit 1 有阻斷 | 鐵律沒有檢查就會被違反 |
-| `.claude/hooks/pre_commit_check.py` | `git commit` 前自動跑 `doctor --quick`，阻斷則擋下 | 靠「記得跑」的檢查終究會腐化 |
+| `tools/doctor.py` | 十四項檢查，✗⚠✓ 三級，exit 1 有阻斷；`coupled` 讓「改 X 必改 Y」在 commit 前被擋 | 鐵律沒有檢查就會被違反 |
+| `.claude/hooks/pre_commit_check.py`、`tools/install_git_hooks.py` | `git commit` 前自動跑 `doctor --quick`，阻斷則擋下；後者裝 git 原生 hook 讓其他工具也擋 | 靠「記得跑」的檢查終究會腐化 |
 | `.claude/skills/` | `/new-task` `/new-adr` `/closeout` 三個流程 | 多步驟流程做成可勾選的清單，不寫成散文規則 |
 | `.claude/rules/` | 碰到 `docs/**`、`tools/**` 才載入的細規則 | 真正的按需載入，主檔因此可以很短 |
 
@@ -36,7 +36,13 @@ cp -r Anvil MyProject && cd MyProject && rm -rf .git
 # 6. 跑 doctor，紅的就是待填清單；全綠後首次 commit 並打 tag
 python tools/doctor.py
 git init -b main && git add -A && git commit -m "chore: 以 Anvil 樣板起始" && git tag -a v0.1.0 -m "v0.1.0"
+# 7.（建議）裝 git 原生 pre-commit，讓 Claude Code 以外的 commit 也會跑 doctor；每次 clone 後重裝
+python tools/install_git_hooks.py --apply
 ```
+
+**小專案的最小用法**：AGENTS.md 只改第一節；STATUS.md 三行；ADR-0001 五句話（做什麼、給誰、不做什麼、選過什麼替代、為什麼不用）；
+limits.md 留空表；`docs/tasks/` 與 skills 等第一次跨檔改動再用。doctor 與 hook 全部保留，那是小專案真正需要的部分。
+**規模變大時**加設定不改結構：見 `docs/extending.md`「規模變大時的加法」。
 
 之後：中改走 `/new-task`，收關走 `/closeout`；hook 會在 commit 時擋住有阻斷項的狀態。
 在 Claude Code 之外直接 `git commit` 不會觸發 hook（見 `docs/limits.md` L01），收關前自己跑一次 `doctor`。
@@ -53,6 +59,7 @@ Anvil/
 ├── anvil/                    # 佔位套件（含 __version__），開新專案時改名
 ├── tools/
 │   ├── doctor.py             # 檢查腳本（只讀不寫）
+│   ├── install_git_hooks.py  # 裝 git 原生 pre-commit（預設乾跑）
 │   └── doctor_ext/           # 延伸層自帶檢查的掛點
 ├── docs/
 │   ├── decisions/            # ADR：NNNN-標題.md

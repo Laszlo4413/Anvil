@@ -138,6 +138,87 @@ def test_bootstrap_check(tmp_path):
     assert r == [(doctor.OK, "樣板過渡已完成")]
 
 
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, encoding="utf-8").stdout
+
+
+def _init_repo(tmp_path: Path) -> None:
+    _git(tmp_path, "init", "-q", "-b", "main")
+    _git(tmp_path, "config", "user.email", "t@example.com")
+    _git(tmp_path, "config", "user.name", "t")
+
+
+def test_coupled_blocks_when_require_missing(tmp_path):
+    """改了 when 沒改 require → 阻斷；兩者都改 → 通過；staged 與 all 模式各自看對的集合。"""
+    _init_repo(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nversion = "0.1.0"\n[tool.anvil]\npackage = "pkg"\n'
+        '[[tool.anvil.coupled]]\nwhen = "src/**/*.py"\nrequire = "CHANGELOG.md"\nreason = "改程式要記變更"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text("# c\n", encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "init")
+    # 只改程式，未 stage：all 模式要擋，staged 模式看不到變更
+    (tmp_path / "src" / "a.py").write_text("x = 2\n", encoding="utf-8")
+    ctx = doctor.Ctx(root=tmp_path, cfg=doctor.load_config(tmp_path), changes_mode="all")
+    doctor.check_coupled(ctx)
+    assert any(lvl == doctor.BLOCK and "CHANGELOG.md" in m and "改程式要記變更" in m for lvl, _, m in ctx.results)
+    ctx = doctor.Ctx(root=tmp_path, cfg=doctor.load_config(tmp_path), changes_mode="staged")
+    doctor.check_coupled(ctx)
+    assert ctx.results[-1][0] == doctor.OK and "沒有變更" in ctx.results[-1][2]
+    # 兩者都改並 stage → 通過
+    (tmp_path / "CHANGELOG.md").write_text("# c\n- 改了\n", encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+    ctx = doctor.Ctx(root=tmp_path, cfg=doctor.load_config(tmp_path), changes_mode="staged")
+    doctor.check_coupled(ctx)
+    assert ctx.results[-1][0] == doctor.OK
+
+
+def test_ledgers_share_the_same_rules(tmp_path):
+    """第二本帳（前綴 D）也要驗編號重複與解除證據。"""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nversion = "0.1.0"\n[tool.anvil]\npackage = "pkg"\n'
+        '[[tool.anvil.ledgers]]\nfile = "docs/debt.md"\nprefix = "D"\n',
+        encoding="utf-8",
+    )
+    head = "# x\nStatus: active\nUpdated: 2026-09-12\nExpiry: [standing]\n\n| # | a | b | c | 狀態 | d | 證據 |\n|---|---|---|---|---|---|---|\n"
+    (tmp_path / "docs" / "limits.md").write_text(head + "| L01 | v | x | accept | 未解 | y | — |\n", encoding="utf-8")
+    (tmp_path / "docs" / "debt.md").write_text(head + "| D01 | v | x | accept | 已解除 | y | — |\n", encoding="utf-8")
+    ctx = doctor.Ctx(root=tmp_path, cfg=doctor.load_config(tmp_path))
+    doctor.check_limits(ctx)
+    assert any(lvl == doctor.BLOCK and "docs/debt.md D01" in m for lvl, _, m in ctx.results)
+
+
+def test_tasks_are_scanned_recursively(tmp_path):
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "0.1.0"\n[tool.anvil]\npackage = "pkg"\n', encoding="utf-8")
+    (tmp_path / "docs" / "tasks" / "v1").mkdir(parents=True)
+    (tmp_path / "docs" / "tasks" / "v2").mkdir(parents=True)
+    for sub in ("v1", "v2"):
+        (tmp_path / "docs" / "tasks" / sub / "2026-09-12-x.md").write_text(
+            "# t\nStatus: active\nUpdated: 2026-09-12\nExpiry: [until: v0.2.0]\n", encoding="utf-8"
+        )
+    ctx = doctor.Ctx(root=tmp_path, cfg=doctor.load_config(tmp_path))
+    doctor.check_tasks(ctx)
+    assert any(lvl == doctor.WARN and "2 份" in m for lvl, _, m in ctx.results)
+
+
+def test_install_git_hooks(tmp_path):
+    """乾跑不寫；--apply 寫入且含 doctor；重跑不產生備份；--uninstall --apply 移除。"""
+    _init_repo(tmp_path)
+    script = ROOT / "tools" / "install_git_hooks.py"
+    hook = tmp_path / ".git" / "hooks" / "pre-commit"
+    run = lambda *a: subprocess.run([sys.executable, str(script), "--root", str(tmp_path), *a],
+                                    capture_output=True, text=True, encoding="utf-8")
+    assert run().returncode == 0 and not hook.exists()
+    assert run("--apply").returncode == 0 and "doctor.py" in hook.read_text(encoding="utf-8")
+    assert run("--apply").returncode == 0 and not (tmp_path / ".git" / "hooks" / "pre-commit.bak").exists()
+    assert run("--uninstall", "--apply").returncode == 0 and not hook.exists()
+
+
 def _run_hook(command: str, env_extra: dict | None = None, root: Path = ROOT) -> subprocess.CompletedProcess:
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(root), **(env_extra or {})}
     env.pop("ANVIL_SKIP_DOCTOR", None) if not env_extra else None

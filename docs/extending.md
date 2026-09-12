@@ -14,6 +14,9 @@
 |---|---|---|
 | `[tool.anvil]` 設定 | `limits_file`、`tasks_dir`、`decisions_dir`、`archive_dir`、`max_active_tasks`、`governed` | 既有檔案已扮演基礎層角色時，把 doctor 指過去，不改名 |
 | `governed` 設定 | `[[tool.anvil.governed]]` 列出額外要納管的文件 glob 與類別 | 專案自己的規劃檔、里程碑檔，要吃同一套中繼資料檢查但不在 `docs/tasks/` |
+| `coupled` 設定 | `[[tool.anvil.coupled]]` 宣告「變更命中 when 時 require 也必須在變更內」 | 「改介面就要改契約文件」「改腳本就要改腳本地圖」這類同步鐵律；doctor 在 commit 前擋，不靠文字 |
+| `ledgers` 設定 | `[[tool.anvil.ledgers]]` 加檔案與編號前綴 | 限制總帳以外的帳本：技術債、介面契約缺口、解耦債務；同格式同檢查 |
+| `tools/install_git_hooks.py` | 裝 git 原生 pre-commit | 多工具或多代理人協作，Claude Code 之外的 commit 也要擋 |
 | `tools/doctor_ext/<name>.py` | 實作 `run(ctx)`，doctor 自動載入 | 專案專屬的結構檢查，或包裝專案既有的檢查工具 |
 | `.claude/rules/<project>.md` | frontmatter 寫 `paths`，碰到才載入 | 只跟某些目錄有關的規矩（凍結區、保護區、命名） |
 | `.claude/skills/<name>/SKILL.md` | 可勾選的流程 | 專案專屬的多步驟流程（開新版本、封存、發布） |
@@ -63,6 +66,18 @@ kind = "task"                            # task | adr | general，決定 Status 
 凍結區（收關後不得修改的版本夾、封存區）不歸基礎層管。基礎層只要求：
 - 凍結檔的首行有標記（`> ⛔ 已凍結（日期）：由 <路徑> 取代`），讓誤開的人第一眼看到
 - 凍結區的規矩寫在 `.claude/rules/<project>.md`，用 `paths` 限定在那些目錄，只在碰到時載入
+
+## 規模變大時的加法（不改基礎層，只加設定）
+
+| 徵兆 | 加什麼 |
+|---|---|
+| 某類程式改了，對應文件老是忘了改 | `[[tool.anvil.coupled]]`：`when = "<pkg>/cli/**"`, `require = "docs/CLI_REFERENCE.md"`。把「同一次交付」從規則變成檢查 |
+| 一本限制總帳裝不下，開始混進技術債、介面缺口 | `[[tool.anvil.ledgers]]` 各開一本、各自前綴（L／D／C…），編號空間不打架 |
+| 任務單超過幾十份 | 分夾 `docs/tasks/<版本或年份>/`，doctor 遞迴掃；`docs/tasks/README.md` 一行說分夾規則 |
+| 教學與參考文件開始過期沒人發現 | 用 `governed` 把它們納管（`glob = "docs/*.md", kind = "general"`），從此要有 Updated／Expiry；搭配 doctor_ext 範例的落後天數警告 |
+| 需要計畫層（下三個版本要做什麼） | 加 `docs/ROADMAP.md`，納管為 general；STATUS.md 只留當下，ROADMAP 才寫未來 |
+| 不只 Claude Code 在 commit | `python tools/install_git_hooks.py --apply`，每次 clone 後裝一次 |
+| 多個代理人接力（規劃、實作、驗收是不同工具） | 在任務單 Status 詞彙外加專案自己的交接狀態欄，不動基礎欄；交接流程做成 skill。基礎層不內建多代理人工作流 |
 
 ## 掛接既有專案的執行原則
 
