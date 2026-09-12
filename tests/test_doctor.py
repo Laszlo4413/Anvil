@@ -233,6 +233,34 @@ def test_milestone_routes_ignores_nesting_depth(tmp_path):
     assert ctx.milestone_routes("nope") == {}
 
 
+def test_links_scan_whole_repo_with_known_false_positive_patterns(tmp_path):
+    """全庫掃描：一般檔斷連結阻斷；archive 內只警告；_templates、程式碼區塊、[[wiki]](註)、links-ignore 標記都跳過。"""
+    _init_repo(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nversion = "0.1.0"\n[tool.anvil]\npackage = "pkg"\nlinks_exclude = ["docs/vendor/**"]\n', encoding="utf-8"
+    )
+    for d in ("docs/archive", "docs/_templates", "docs/vendor", "docs/notes"):
+        (tmp_path / d).mkdir(parents=True)
+    (tmp_path / "docs" / "real.md").write_text("# r\n", encoding="utf-8")
+    (tmp_path / "docs" / "notes" / "a.md").write_text(
+        "見 [存在](../real.md) 與 [斷的](../nope.md)。\n"
+        "記憶交叉引用 [[some-ref]](這是括號註解，不是連結)。\n"
+        "```\n[程式碼裡的](../ghost.md)\n```\n行內 `[也是](../ghost2.md)` 略過。\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docs" / "archive" / "old.md").write_text("> ⛔ 已退役\n[搬家後斷了](../05.md)\n", encoding="utf-8")
+    (tmp_path / "docs" / "_templates" / "T.md").write_text("[V1](V1/) 示意\n", encoding="utf-8")
+    (tmp_path / "docs" / "vendor" / "v.md").write_text("[外部](missing.md)\n", encoding="utf-8")
+    (tmp_path / "docs" / "ignored.md").write_text("<!-- anvil:links-ignore -->\n[x](missing.md)\n", encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+    ctx = doctor.Ctx(root=tmp_path, cfg=doctor.load_config(tmp_path))
+    doctor.check_links(ctx)
+    res = [(lvl, m) for lvl, _, m in ctx.results]
+    assert [m for lvl, m in res if lvl == doctor.BLOCK] == ["docs/notes/a.md 連到不存在的 ../nope.md"]
+    assert any(lvl == doctor.WARN and "docs/archive/old.md" in m and "退役" in m for lvl, m in res)
+    assert not any("ghost" in m or "括號註解" in m or "V1/" in m or "vendor" in m or "ignored" in m for _, m in res)
+
+
 def _run_hook(command: str, env_extra: dict | None = None, root: Path = ROOT) -> subprocess.CompletedProcess:
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(root), **(env_extra or {})}
     env.pop("ANVIL_SKIP_DOCTOR", None) if not env_extra else None

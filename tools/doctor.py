@@ -11,7 +11,9 @@
  1. version   版本三處一致（pyproject / <package>/__init__.py / 最新 git tag）+ CHANGELOG 有該版本段
  2. status    STATUS.md 的 Version 等於 pyproject；Updated 落後最近 commit 超過 N 天則警告
  3. agents    AGENTS.md 存在且不超過行數上限；CLAUDE.md 含 @AGENTS.md
- 4. links     README.md / AGENTS.md / STATUS.md 內的相對連結都指到存在的路徑
+ 4. links     所有被 git 追蹤的 .md（沒有 git 就掃工作樹）內的相對連結都指到存在的路徑；
+              archive 內的斷連結只警告，其他阻斷。跳過 _templates/、程式碼區塊、`[[wiki]](註)` 樣式、
+              [tool.anvil].links_exclude 的 glob，以及含 <!-- anvil:links-ignore --> 的檔
  5. metadata  治理文件（STATUS、docs/limits.md、decisions、tasks、archive）都有 Status/Updated/Expiry，
               詞彙在受控範圍內，[until: vX.Y] 到期者列出，[superseded-by:] 目標存在
  6. tasks     同時 Status: active 的任務單不超過一份；檔名以 YYYY-MM-DD- 開頭
@@ -79,6 +81,7 @@ DEFAULT_CFG = {
     "governed": [],                        # 額外納管的文件：[{"glob": "...", "kind": "task|adr|general"}]
     "ledgers": [],                         # 額外的帳本：[{"file": "docs/xxx.md", "prefix": "D", "name": "..."}]
     "coupled": [],                         # 耦合宣告：[{"when": "glob", "require": "glob 或 [glob…]", "reason": "..."}]
+    "links_exclude": [],                   # links 檢查額外跳過的 glob（_templates/** 永遠跳過）
     "status_stale_days": 14,
     "agents_max_lines": 150,
     "sensitive_globs": [".env", ".env.*", "credentials.json", "token.json", "cookie.txt", "*.db", "*.sqlite"],
@@ -339,24 +342,57 @@ def check_agents(ctx: Ctx) -> None:
         ctx.add(OK, name, f"AGENTS.md {n} 行，CLAUDE.md 有 import")
 
 
-LINK_RE = re.compile(r"\]\(([^)\s#]+)(?:#[^)]*)?\)")
+# `](` 前面不能又是 `]`：排除 `[[wiki-link]](括號註解)` 這種樣式被誤認成 markdown 連結
+LINK_RE = re.compile(r"(?<!\])\]\(([^)\s#]+)(?:#[^)]*)?\)")
+FENCE_RE = re.compile(r"```.*?```", re.S)
+INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+LINKS_IGNORE_MARK = "<!-- anvil:links-ignore -->"
+
+
+def markdown_files(ctx: Ctx) -> list[Path]:
+    """要掃的 .md：優先用 git 追蹤清單（= 冷啟動 clone 下來看得到的），沒有 git 就掃工作樹（跳過隱藏與環境目錄）。"""
+    tracked = ctx.git("ls-files", "-z", "--", "*.md", "**/*.md", strip=False)
+    if tracked:
+        return [ctx.root / p for p in tracked.split("\0") if p]
+    skip = {".git", ".venv", "venv", "node_modules", ".pytest_tmp", ".pytest_cache", "build", "dist"}
+    return [p for p in ctx.root.rglob("*.md") if not any(part in skip or part.startswith(".") for part in p.parts[:-1])]
 
 
 def check_links(ctx: Ctx) -> None:
     name = "links"
-    bad = 0
-    for fname in ("README.md", "AGENTS.md", ctx.cfg["status_file"]):
-        f = ctx.root / fname
-        if not f.exists():
+    from urllib.parse import unquote
+
+    excludes = ["**/_templates/**", "_templates/**", *ctx.cfg.get("links_exclude", [])]
+    archive_dir = ctx.cfg["archive_dir"].rstrip("/") + "/"
+    scanned = blocks = warns = 0
+    for f in markdown_files(ctx):
+        r = rel(ctx, f)
+        if any(_match(r, g) for g in excludes):
             continue
-        for target in LINK_RE.findall(f.read_text(encoding="utf-8")):
-            if "://" in target or target.startswith("mailto:") or "<" in target:
+        try:
+            text = f.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if LINKS_IGNORE_MARK in text:
+            continue
+        scanned += 1
+        text = INLINE_CODE_RE.sub("", FENCE_RE.sub("", text))
+        in_archive = r.startswith(archive_dir)
+        for target in LINK_RE.findall(text):
+            if "://" in target or target.startswith(("mailto:", "#")) or "<" in target:
                 continue
-            if not (f.parent / target).exists():
-                bad += 1
-                ctx.add(BLOCK, name, f"{fname} 連到不存在的 {target}")
-    if not bad:
-        ctx.add(OK, name, "README / AGENTS / STATUS 的相對連結都存在")
+            path = unquote(target)
+            if path.startswith("/"):
+                continue  # 站內絕對路徑不是檔案系統路徑，略過
+            if not (f.parent / path).exists():
+                if in_archive:
+                    warns += 1
+                    ctx.add(WARN, name, f"{r} 連到不存在的 {target}（退役文件，搬家時沒調整相對路徑）")
+                else:
+                    blocks += 1
+                    ctx.add(BLOCK, name, f"{r} 連到不存在的 {target}")
+    if not blocks and not warns:
+        ctx.add(OK, name, f"{scanned} 份 .md 的相對連結都存在")
 
 
 def governed_files(ctx: Ctx) -> list[tuple[Path, str]]:
