@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# 測試
+.pytest_tmp/
+.pytest_cache/
+
+# 敏感檔（絕不進版控；提供 *.example 範本給使用者照填）
+.env
+.env.*
+!.env.example
+credentials.json
+token.json
+cookie.txt
+*.db
+*.sqlite
+
+# 執行產出
+output/
+out/
+
+# 個人設定（Claude Code）
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/agent-memory-local/
+
+# OS
+.DS_Store
+Thumbs.db

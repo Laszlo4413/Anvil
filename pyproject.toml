@@ -1,0 +1,33 @@
+[project]
+name = "anvil-template"
+version = "0.1.0"
+description = "給單人 + AI 代理人協作的專案起手樣板：規則檔、狀態檔、三種紀錄、doctor 檢查與 commit hook"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["anvil"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# 本機系統暫存目錄有權限問題時，改用專案內暫存（由 .gitignore 擋）
+addopts = "--basetemp=.pytest_tmp"
+
+# ── Anvil doctor 的設定 ─────────────────────────────────────────
+# 開新專案時改 package；其餘通常不動。
+[tool.anvil]
+package = "anvil"              # 含 __version__ 的套件目錄
+docs_dir = "docs"
+status_file = "STATUS.md"
+status_stale_days = 14         # STATUS.md 的 Updated 落後最近 commit 超過這天數 → 警告
+agents_max_lines = 150
+sensitive_globs = [".env", ".env.*", "credentials.json", "token.json", "cookie.txt", "*.db", "*.sqlite"]
