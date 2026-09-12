@@ -78,6 +78,26 @@ def test_doctor_limits_requires_evidence(tmp_path):
     assert any("沒有解除證據" in m for m in msgs) and any("編號重複" in m for m in msgs)
 
 
+def test_config_paths_are_respected(tmp_path):
+    """[tool.anvil] 的 limits_file / tasks_dir / max_active_tasks 要真的被讀。"""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nversion = "0.1.0"\n[tool.anvil]\npackage = "pkg"\n'
+        'limits_file = "docs/10_限制.md"\ntasks_dir = "work/tasks"\nmax_active_tasks = 2\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "work" / "tasks").mkdir(parents=True)
+    for n in ("a", "b"):
+        (tmp_path / "work" / "tasks" / f"2026-09-12-{n}.md").write_text(
+            "# t\nStatus: active\nUpdated: 2026-09-12\nExpiry: [until: v0.2.0]\n", encoding="utf-8"
+        )
+    ctx = doctor.Ctx(root=tmp_path, cfg=doctor.load_config(tmp_path))
+    doctor.check_limits(ctx)
+    doctor.check_tasks(ctx)
+    msgs = [(lvl, m) for lvl, _, m in ctx.results]
+    assert any(lvl == doctor.WARN and "docs/10_限制.md" in m for lvl, m in msgs)
+    assert any(lvl == doctor.OK and "active 任務單 2 份" in m for lvl, m in msgs)
+
+
 def _run_hook(command: str, env_extra: dict | None = None, root: Path = ROOT) -> subprocess.CompletedProcess:
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(root), **(env_extra or {})}
     env.pop("ANVIL_SKIP_DOCTOR", None) if not env_extra else None

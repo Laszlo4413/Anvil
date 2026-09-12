@@ -62,6 +62,11 @@ DEFAULT_CFG = {
     "package": "anvil",
     "docs_dir": "docs",
     "status_file": "STATUS.md",
+    "limits_file": "docs/limits.md",       # 既有專案可指向自己的限制總帳，不必改名
+    "tasks_dir": "docs/tasks",
+    "decisions_dir": "docs/decisions",
+    "archive_dir": "docs/archive",
+    "max_active_tasks": 1,                 # 多線專案的里程碑任務單由 doctor_ext 另管
     "status_stale_days": 14,
     "agents_max_lines": 150,
     "sensitive_globs": [".env", ".env.*", "credentials.json", "token.json", "cookie.txt", "*.db", "*.sqlite"],
@@ -290,11 +295,11 @@ def governed_files(ctx: Ctx) -> list[tuple[Path, str]]:
     sf = ctx.root / ctx.cfg["status_file"]
     if sf.exists():
         out.append((sf, "general"))
-    lim = ctx.docs / "limits.md"
+    lim = ctx.root / ctx.cfg["limits_file"]
     if lim.exists():
         out.append((lim, "general"))
-    for sub, kind in (("decisions", "adr"), ("tasks", "task"), ("archive", "general")):
-        d = ctx.docs / sub
+    for key, kind in (("decisions_dir", "adr"), ("tasks_dir", "task"), ("archive_dir", "general")):
+        d = ctx.root / ctx.cfg[key]
         if d.is_dir():
             for p in sorted(d.glob("*.md")):
                 if p.name.lower() == "readme.md":
@@ -354,9 +359,10 @@ def check_metadata(ctx: Ctx) -> None:
 
 def check_tasks(ctx: Ctx) -> None:
     name = "tasks"
-    d = ctx.docs / "tasks"
+    d = ctx.root / ctx.cfg["tasks_dir"]
+    max_active = int(ctx.cfg["max_active_tasks"])
     if not d.is_dir():
-        ctx.add(WARN, name, "沒有 docs/tasks/")
+        ctx.add(WARN, name, f"沒有 {ctx.cfg['tasks_dir']}/")
         return
     active: list[str] = []
     bad_name = 0
@@ -368,15 +374,15 @@ def check_tasks(ctx: Ctx) -> None:
             ctx.add(WARN, name, f"{rel(ctx, p)} 檔名不是 YYYY-MM-DD- 開頭")
         if read_meta(p).get("Status", "").split()[:1] == ["active"]:
             active.append(p.name)
-    if len(active) > 1:
-        ctx.add(WARN, name, f"同時 active 的任務單有 {len(active)} 份：{', '.join(active)}（只能有一份）")
-    if len(active) <= 1 and not bad_name:
+    if len(active) > max_active:
+        ctx.add(WARN, name, f"同時 active 的任務單有 {len(active)} 份：{', '.join(active)}（上限 {max_active}）")
+    if len(active) <= max_active and not bad_name:
         ctx.add(OK, name, f"active 任務單 {len(active)} 份")
 
 
 def check_archive(ctx: Ctx) -> None:
     name = "archive"
-    d = ctx.docs / "archive"
+    d = ctx.root / ctx.cfg["archive_dir"]
     if not d.is_dir():
         ctx.add(OK, name, "沒有 archive/（尚無退役文件）")
         return
@@ -394,9 +400,9 @@ def check_archive(ctx: Ctx) -> None:
 
 def check_limits(ctx: Ctx) -> None:
     name = "limits"
-    f = ctx.docs / "limits.md"
+    f = ctx.root / ctx.cfg["limits_file"]
     if not f.exists():
-        ctx.add(WARN, name, "沒有 docs/limits.md")
+        ctx.add(WARN, name, f"沒有 {ctx.cfg['limits_file']}")
         return
     seen: set[str] = set()
     problems = 0
@@ -422,7 +428,7 @@ def check_limits(ctx: Ctx) -> None:
 
 def check_adr(ctx: Ctx) -> None:
     name = "adr"
-    d = ctx.docs / "decisions"
+    d = ctx.root / ctx.cfg["decisions_dir"]
     if not d.is_dir():
         ctx.add(WARN, name, "沒有 docs/decisions/")
         return

@@ -51,7 +51,8 @@ Anvil/
 │   ├── tasks/                # 任務單：YYYY-MM-DD-vX.Y.Z-標題.md
 │   ├── archive/              # 退役文件，首行有 ⛔ 標記
 │   ├── _templates/           # 模板：標題不可改，首行註解「複製後填實」
-│   └── python_profile.md     # Python 工具專案的結構慣例
+│   ├── python_profile.md     # Python 工具專案的結構慣例
+│   └── extending.md          # 延伸層指南：掛到既有專案、多線／里程碑專案怎麼對映
 ├── tests/                    # pytest；含 .gitignore 防線測試與 doctor 自檢
 └── .claude/
     ├── settings.json         # hooks 與 permissions（進版控）

@@ -15,6 +15,7 @@ Anvil 是給「單人 + AI 代理人」協作的專案起手樣板。它只提�
 | 已知還沒解的問題與處置 | [docs/limits.md](docs/limits.md) |
 | 某次任務的範圍、驗收、進度 | [docs/tasks/](docs/tasks/) |
 | Python 專案的目錄／pyproject／版本慣例 | [docs/python_profile.md](docs/python_profile.md) |
+| 怎麼掛到既有專案、多線／里程碑專案怎麼對映 | [docs/extending.md](docs/extending.md) |
 | 過時但留作溯源的文件 | [docs/archive/](docs/archive/) |
 | 各種紀錄的模板 | [docs/_templates/](docs/_templates/) |
 
@@ -62,3 +63,5 @@ pytest
 | 專案自己的檢查 | `tools/doctor_ext/<name>.py`，實作 `run(ctx)`，doctor 自動載入 |
 | 專案專屬流程 | `.claude/skills/<name>/SKILL.md` |
 | 任務單、ADR 要加欄位 | 可加，不可刪基礎欄、不可改既有標題 |
+| 工作單位是「某線的第 N 版」而非單一任務 | PLAN 留在版本夾，`docs/tasks/` 只放跨線工作；每線一個現行里程碑由 doctor_ext 管。見 `docs/extending.md` |
+| 既有的限制總帳、任務夾不叫 Anvil 的名字 | 不改名，改 `[tool.anvil]` 的 `limits_file`／`tasks_dir`／`decisions_dir`／`archive_dir` |

@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-12
+
+### 新增
+- `docs/extending.md` 延伸層指南：多線／里程碑專案怎麼對映、既有檔案怎麼指、掛接的執行原則、doctor_ext 寫法。起因是 XivForge 整合討論暴露的缺口，見 [任務單](docs/tasks/2026-09-12-v0.1.1-extension-guide.md)。
+- doctor 設定新增 `limits_file`／`tasks_dir`／`decisions_dir`／`archive_dir`／`max_active_tasks`，既有專案不必改名對齊。
+
 ## [0.1.0] - 2026-09-12
 
 ### 新增
