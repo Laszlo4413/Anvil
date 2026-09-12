@@ -63,5 +63,5 @@ pytest
 | 專案自己的檢查 | `tools/doctor_ext/<name>.py`，實作 `run(ctx)`，doctor 自動載入 |
 | 專案專屬流程 | `.claude/skills/<name>/SKILL.md` |
 | 任務單、ADR 要加欄位 | 可加，不可刪基礎欄、不可改既有標題 |
-| 工作單位是「某線的第 N 版」而非單一任務 | PLAN 留在版本夾，`docs/tasks/` 只放跨線工作；每線一個現行里程碑由 doctor_ext 管。見 `docs/extending.md` |
+| 工作單位是里程碑而非單一任務（多路線／多版本專案） | 規劃檔留在它的版本夾，用 `[[tool.anvil.governed]]` 納管；`docs/tasks/` 只放跨路線工作。見 `docs/extending.md` |
 | 既有的限制總帳、任務夾不叫 Anvil 的名字 | 不改名，改 `[tool.anvil]` 的 `limits_file`／`tasks_dir`／`decisions_dir`／`archive_dir` |

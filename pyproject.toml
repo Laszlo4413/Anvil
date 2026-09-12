@@ -34,5 +34,9 @@ decisions_dir = "docs/decisions"
 archive_dir = "docs/archive"
 max_active_tasks = 1           # 同時 active 的任務單上限
 status_stale_days = 14         # STATUS.md 的 Updated 落後最近 commit 超過這天數 → 警告
+# 額外納管的文件（延伸點，可多組）：讓專案自己的規劃檔吃同一套中繼資料檢查
+# [[tool.anvil.governed]]
+# glob = "routes/**/PLAN.md"
+# kind = "task"                # task | adr | general
 agents_max_lines = 150
 sensitive_globs = [".env", ".env.*", "credentials.json", "token.json", "cookie.txt", "*.db", "*.sqlite"]

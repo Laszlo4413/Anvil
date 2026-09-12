@@ -1,8 +1,9 @@
 """doctor — Anvil 專案的文件新鮮度與協作紀律檢查。
 
 ## 為什麼需要這支
-規則寫在 AGENTS.md 裡不會自己被遵守。上一輪專案（XivForge）裡唯二沒被任何工具盯著的兩份索引文件
-正好是落後最久的；另一個專案（AI-OS）有完整的文件生命週期腳本卻沒掛到任何強制點，全靠代理人記得跑。
+規則寫在 AGENTS.md 裡不會自己被遵守。樣板誕生前盤點的兩個既有專案給了正反兩面的證據：
+一個專案裡唯二沒被任何工具盯著的兩份索引文件正好是落後最久的；另一個專案有完整的文件生命週期腳本，
+卻沒掛到任何強制點，全靠代理人記得跑。
 這支的存在理由是把「文件要不要更新」從「靠記得」變成「一個會失敗的檢查」，
 並由 .claude/hooks/pre_commit_check.py 在每次 git commit 前呼叫。
 
@@ -66,7 +67,8 @@ DEFAULT_CFG = {
     "tasks_dir": "docs/tasks",
     "decisions_dir": "docs/decisions",
     "archive_dir": "docs/archive",
-    "max_active_tasks": 1,                 # 多線專案的里程碑任務單由 doctor_ext 另管
+    "max_active_tasks": 1,
+    "governed": [],                        # 額外納管的文件：[{"glob": "...", "kind": "task|adr|general"}]
     "status_stale_days": 14,
     "agents_max_lines": 150,
     "sensitive_globs": [".env", ".env.*", "credentials.json", "token.json", "cookie.txt", "*.db", "*.sqlite"],
@@ -305,6 +307,16 @@ def governed_files(ctx: Ctx) -> list[tuple[Path, str]]:
                 if p.name.lower() == "readme.md":
                     continue
                 out.append((p, kind))
+    # 延伸點：[[tool.anvil.governed]] glob="..." kind="task|adr|general"，讓專案把自己的文件納入同一套檢查
+    seen = {p for p, _ in out}
+    for entry in ctx.cfg.get("governed") or []:
+        glob, kind = entry.get("glob"), entry.get("kind", "general")
+        if not glob or kind not in STATUS_VOCAB:
+            continue
+        for p in sorted(ctx.root.glob(glob)):
+            if p.is_file() and p not in seen and p.name.lower() != "readme.md":
+                out.append((p, kind))
+                seen.add(p)
     return out
 
 

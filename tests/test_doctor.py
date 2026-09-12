@@ -98,6 +98,20 @@ def test_config_paths_are_respected(tmp_path):
     assert any(lvl == doctor.OK and "active 任務單 2 份" in m for lvl, m in msgs)
 
 
+def test_governed_globs_extend_metadata_check(tmp_path):
+    """[[tool.anvil.governed]] 納管的檔案要進 metadata 檢查（缺欄位 → 阻斷）。"""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nversion = "0.1.0"\n[tool.anvil]\npackage = "pkg"\n'
+        '[[tool.anvil.governed]]\nglob = "routes/**/PLAN.md"\nkind = "task"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "routes" / "A" / "V1").mkdir(parents=True)
+    (tmp_path / "routes" / "A" / "V1" / "PLAN.md").write_text("# 沒有中繼資料的規劃檔\n", encoding="utf-8")
+    ctx = doctor.Ctx(root=tmp_path, cfg=doctor.load_config(tmp_path))
+    doctor.check_metadata(ctx)
+    assert any(lvl == doctor.BLOCK and "routes/A/V1/PLAN.md" in m for lvl, _, m in ctx.results)
+
+
 def _run_hook(command: str, env_extra: dict | None = None, root: Path = ROOT) -> subprocess.CompletedProcess:
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(root), **(env_extra or {})}
     env.pop("ANVIL_SKIP_DOCTOR", None) if not env_extra else None

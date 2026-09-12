@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 變更
+- 去除 0.1.1 沾到的單一專案特化：`docs/extending.md`、AGENTS 掛點表、`doctor_ext/_example.py` 改為領域中立的寫法與範例。
+- 新增延伸點 `[[tool.anvil.governed]]`：用 glob 與 kind 把專案自己的文件納入中繼資料檢查，不必寫程式。
+
 ## [0.1.1] - 2026-09-12
 
 ### 新增
